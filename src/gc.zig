@@ -24,7 +24,7 @@ pub const GcAllocator = struct {
         memory: []u8,
     };
 
-    pub fn init(allocator: *mem.Allocator, start: *const u8) GcAllocator {
+    pub fn init(child_alloc: *mem.Allocator, start: *const u8) GcAllocator {
         return GcAllocator{
             .base = mem.Allocator{
                 .allocFn = alloc,
@@ -32,7 +32,7 @@ pub const GcAllocator = struct {
                 .freeFn = free,
             },
             .start = @ptrCast([*]const u8, start),
-            .ptrs = PointerList.init(allocator),
+            .ptrs = PointerList.init(child_alloc),
         };
     }
 
@@ -52,6 +52,10 @@ pub const GcAllocator = struct {
     pub fn collectFrame(gc: *GcAllocator, frame: []const u8) void {
         gc.mark(frame);
         gc.sweep();
+    }
+
+    pub fn allocator(gc: *GcAllocator) *mem.Allocator {
+        return &gc.base;
     }
 
     fn mark(gc: *GcAllocator, frame: []const u8) void {
@@ -82,11 +86,7 @@ pub const GcAllocator = struct {
                 continue;
             }
 
-            child_alloc.free(ptr.memory);
-
-            // Swap the just freed pointer with the last pointer in the list.
-            ptr.* = undefined;
-            ptr.* = gc.ptrs.pop() ?? undefined;
+            gc.freePtr(ptr);
         }
     }
 
@@ -110,32 +110,8 @@ pub const GcAllocator = struct {
         return null;
     }
 
-    fn alloc(allocator: *mem.Allocator, n: usize, alignment: u29) ![]u8 {
-        const gc = @fieldParentPtr(GcAllocator, "base", allocator);
+    fn freePtr(gc: *GcAllocator, ptr: *Pointer) void {
         const child_alloc = gc.childAllocator();
-        const memory = try child_alloc.allocFn(child_alloc, n, alignment);
-        try gc.ptrs.push(Pointer{
-            .flags = Flags.zero,
-            .memory = memory,
-        });
-
-        return memory;
-    }
-
-    fn realloc(allocator: *mem.Allocator, old_mem: []u8, new_size: usize, alignment: u29) ![]u8 {
-        if (new_size <= old_mem.len) {
-            return old_mem[0..new_size];
-        } else {
-            const result = try alloc(allocator, new_size, alignment);
-            mem.copy(u8, result, old_mem);
-            return result;
-        }
-    }
-
-    fn free(allocator: *mem.Allocator, bytes: []u8) void {
-        const gc = @fieldParentPtr(GcAllocator, "base", allocator);
-        const child_alloc = gc.childAllocator();
-        const ptr = gc.findPtr(bytes) ?? @panic("Freeing memory not allocated by garbage collector!");
         child_alloc.free(ptr.memory);
 
         // Swap the just freed pointer with the last pointer in the list.
@@ -146,6 +122,35 @@ pub const GcAllocator = struct {
     fn childAllocator(gc: *GcAllocator) *mem.Allocator {
         return gc.ptrs.allocator;
     }
+
+    fn alloc(base: *mem.Allocator, n: usize, alignment: u29) ![]u8 {
+        const gc = @fieldParentPtr(GcAllocator, "base", base);
+        const child_alloc = gc.childAllocator();
+        const memory = try child_alloc.allocFn(child_alloc, n, alignment);
+        try gc.ptrs.push(Pointer{
+            .flags = Flags.zero,
+            .memory = memory,
+        });
+
+        return memory;
+    }
+
+    fn realloc(base: *mem.Allocator, old_mem: []u8, new_size: usize, alignment: u29) ![]u8 {
+        if (new_size <= old_mem.len) {
+            return old_mem[0..new_size];
+        } else {
+            const result = try alloc(base, new_size, alignment);
+            mem.copy(u8, result, old_mem);
+            return result;
+        }
+    }
+
+    fn free(base: *mem.Allocator, bytes: []u8) void {
+        const gc = @fieldParentPtr(GcAllocator, "base", base);
+        const child_alloc = gc.childAllocator();
+        const ptr = gc.findPtr(bytes) ?? @panic("Freeing memory not allocated by garbage collector!");
+        gc.freePtr(ptr);
+    }
 };
 
 const Leaker = struct {
@@ -154,7 +159,7 @@ const Leaker = struct {
 
 test "gc.collect: No leaks" {
     var gc = GcAllocator.init(debug.global_allocator, @frameAddress());
-    const allocator = &gc.base;
+    const allocator = gc.allocator();
 
     var a = try allocator.create(Leaker);
     a.l = try allocator.create(Leaker);
@@ -174,7 +179,7 @@ fn leak(allocator: *mem.Allocator) !void {
 
 test "gc.collect: Leaks" {
     var gc = GcAllocator.init(debug.global_allocator, @frameAddress());
-    const allocator = &gc.base;
+    const allocator = gc.allocator();
 
     var a = try allocator.create(Leaker);
     a.l = try allocator.create(Leaker);
@@ -185,4 +190,16 @@ test "gc.collect: Leaks" {
     debug.assert(gc.ptrs.len == 2);
     debug.assert(@ptrToInt(gc.ptrs.at(0).memory.ptr) == @ptrToInt(a));
     debug.assert(@ptrToInt(gc.ptrs.at(1).memory.ptr) == @ptrToInt(a.l));
+}
+
+test "gc.free" {
+    var gc = GcAllocator.init(debug.global_allocator, @frameAddress());
+    const allocator = gc.allocator();
+
+    var a = try allocator.create(Leaker);
+    var b = try allocator.create(Leaker);
+    allocator.destroy(b);
+
+    debug.assert(gc.ptrs.len == 1);
+    debug.assert(@ptrToInt(gc.ptrs.at(0).memory.ptr) == @ptrToInt(a));
 }
