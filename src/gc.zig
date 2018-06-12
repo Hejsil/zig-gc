@@ -77,7 +77,7 @@ pub const GcAllocator = struct {
             //       If ptrs are always aligned, we can skip every @alignOf(*u8) bytes.
             const Ptr = *align(@alignOf(u8)) const [*]u8;
             const frame_ptr = @ptrCast(Ptr, byte);
-            const ptr = gc.findPtr(frame_ptr.*[0..0]) ?? continue;
+            const ptr = gc.findPtr(frame_ptr.*) ?? continue;
             if (ptr.flags.checked)
                 continue;
 
@@ -102,21 +102,15 @@ pub const GcAllocator = struct {
         }
     }
 
-    fn findPtr(gc: *GcAllocator, bytes: []const u8) ?*Pointer {
-        const bytes_start = @ptrToInt(bytes.ptr);
-        const bytes_end = bytes_start + bytes.len;
+    fn findPtr(gc: *GcAllocator, bytes: [*]const u8) ?*Pointer {
+        const bytes_start = @ptrToInt(bytes);
 
         var iter = gc.ptrs.iterator(0);
         while (iter.next()) |ptr| {
             const ptr_start = @ptrToInt(ptr.memory.ptr);
             const ptr_end = ptr_start + ptr.memory.len;
-            if (bytes_start < ptr_start)
-                continue;
-            if (ptr_end <= bytes_start)
-                continue;
-
-            debug.assert(ptr_start <= bytes_end and bytes_end <= ptr_end);
-            return ptr;
+            if (ptr_start <= bytes_start and bytes_start < ptr_end)
+                return ptr;
         }
 
         return null;
@@ -160,7 +154,7 @@ pub const GcAllocator = struct {
     fn free(base: *mem.Allocator, bytes: []u8) void {
         const gc = @fieldParentPtr(GcAllocator, "base", base);
         const child_alloc = gc.childAllocator();
-        const ptr = gc.findPtr(bytes) ?? @panic("Freeing memory not allocated by garbage collector!");
+        const ptr = gc.findPtr(bytes.ptr) ?? @panic("Freeing memory not allocated by garbage collector!");
         gc.freePtr(ptr);
     }
 };
