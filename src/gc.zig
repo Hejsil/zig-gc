@@ -36,6 +36,18 @@ pub const GcAllocator = struct {
         };
     }
 
+    pub fn deinit(gc: *GcAllocator) void {
+        const child_alloc = gc.childAllocator();
+
+        var iter = gc.ptrs.iterator(0);
+        while (iter.next()) |ptr| {
+            child_alloc.free(ptr.memory);
+        }
+
+        gc.ptrs.deinit();
+        gc.* = undefined;
+    }
+
     pub fn collect(gc: *GcAllocator) void {
         const frame = blk: {
             const end = @ptrCast([*]const u8, @frameAddress());
@@ -159,6 +171,7 @@ const Leaker = struct {
 
 test "gc.collect: No leaks" {
     var gc = GcAllocator.init(debug.global_allocator, @frameAddress());
+    defer gc.deinit();
     const allocator = gc.allocator();
 
     var a = try allocator.create(Leaker);
@@ -179,6 +192,7 @@ fn leak(allocator: *mem.Allocator) !void {
 
 test "gc.collect: Leaks" {
     var gc = GcAllocator.init(debug.global_allocator, @frameAddress());
+    defer gc.deinit();
     const allocator = gc.allocator();
 
     var a = try allocator.create(Leaker);
@@ -194,6 +208,7 @@ test "gc.collect: Leaks" {
 
 test "gc.free" {
     var gc = GcAllocator.init(debug.global_allocator, @frameAddress());
+    defer gc.deinit();
     const allocator = gc.allocator();
 
     var a = try allocator.create(Leaker);
