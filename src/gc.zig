@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const mem = std.mem;
 const debug = std.debug;
 
@@ -102,14 +103,14 @@ pub const GcAllocator = struct {
         }
     }
 
-    fn findPtr(gc: *GcAllocator, bytes: [*]const u8) ?*Pointer {
-        const bytes_start = @ptrToInt(bytes);
+    fn findPtr(gc: *GcAllocator, to_find_ptr: var) ?*Pointer {
+        comptime debug.assert(@typeInfo(@typeOf(to_find_ptr)) == builtin.TypeId.Pointer);
 
         var iter = gc.ptrs.iterator(0);
         while (iter.next()) |ptr| {
             const ptr_start = @ptrToInt(ptr.memory.ptr);
             const ptr_end = ptr_start + ptr.memory.len;
-            if (ptr_start <= bytes_start and bytes_start < ptr_end)
+            if (ptr_start <= @ptrToInt(to_find_ptr) and @ptrToInt(to_find_ptr) < ptr_end)
                 return ptr;
         }
 
@@ -173,9 +174,9 @@ test "gc.collect: No leaks" {
     a.l.l = a;
     gc.collect();
 
+    debug.assert(gc.findPtr(a) != null);
+    debug.assert(gc.findPtr(a.l) != null);
     debug.assert(gc.ptrs.len == 2);
-    debug.assert(@ptrToInt(gc.ptrs.at(0).memory.ptr) == @ptrToInt(a));
-    debug.assert(@ptrToInt(gc.ptrs.at(1).memory.ptr) == @ptrToInt(a.l));
 }
 
 fn leak(allocator: *mem.Allocator) !void {
@@ -195,9 +196,9 @@ test "gc.collect: Leaks" {
     try leak(allocator);
     gc.collect();
 
+    debug.assert(gc.findPtr(a) != null);
+    debug.assert(gc.findPtr(a.l) != null);
     debug.assert(gc.ptrs.len == 2);
-    debug.assert(@ptrToInt(gc.ptrs.at(0).memory.ptr) == @ptrToInt(a));
-    debug.assert(@ptrToInt(gc.ptrs.at(1).memory.ptr) == @ptrToInt(a.l));
 }
 
 test "gc.free" {
@@ -209,6 +210,6 @@ test "gc.free" {
     var b = try allocator.create(Leaker);
     allocator.destroy(b);
 
+    debug.assert(gc.findPtr(a) != null);
     debug.assert(gc.ptrs.len == 1);
-    debug.assert(@ptrToInt(gc.ptrs.at(0).memory.ptr) == @ptrToInt(a));
 }
