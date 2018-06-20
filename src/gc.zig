@@ -78,7 +78,7 @@ pub const GcAllocator = struct {
             //       If ptrs are always aligned, we can skip every @alignOf(*u8) bytes.
             const Ptr = *align(@alignOf(u8)) const [*]u8;
             const frame_ptr = @ptrCast(Ptr, byte);
-            const ptr = gc.findPtr(frame_ptr.*) ?? continue;
+            const ptr = gc.findPtr(frame_ptr.*) orelse continue;
             if (ptr.flags.checked)
                 continue;
 
@@ -123,7 +123,7 @@ pub const GcAllocator = struct {
 
         // Swap the just freed pointer with the last pointer in the list.
         ptr.* = undefined;
-        ptr.* = gc.ptrs.pop() ?? undefined;
+        ptr.* = gc.ptrs.pop() orelse undefined;
     }
 
     fn childAllocator(gc: *GcAllocator) *mem.Allocator {
@@ -155,7 +155,7 @@ pub const GcAllocator = struct {
     fn free(base: *mem.Allocator, bytes: []u8) void {
         const gc = @fieldParentPtr(GcAllocator, "base", base);
         const child_alloc = gc.childAllocator();
-        const ptr = gc.findPtr(bytes.ptr) ?? @panic("Freeing memory not allocated by garbage collector!");
+        const ptr = gc.findPtr(bytes.ptr) orelse @panic("Freeing memory not allocated by garbage collector!");
         gc.freePtr(ptr);
     }
 };
