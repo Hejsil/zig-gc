@@ -55,9 +55,9 @@ pub const GcAllocator = struct {
             const i_start = @ptrToInt(gc.start);
             const i_end = @ptrToInt(end);
             if (i_start < i_end)
-                break :blk gc.start[0..i_end - i_start];
+                break :blk gc.start[0 .. i_end - i_start];
 
-            break :blk end[0..i_start - i_end];
+            break :blk end[0 .. i_start - i_end];
         };
         gc.collectFrame(frame);
     }
@@ -169,9 +169,7 @@ test "gc.collect: No leaks" {
     defer gc.deinit();
     const allocator = gc.allocator();
 
-    var a = try allocator.create(Leaker{
-        .l = try allocator.create(Leaker(undefined)),
-    });
+    var a = try allocator.create(Leaker{ .l = try allocator.create(Leaker(undefined)) });
     a.l.l = a;
     gc.collect();
 
@@ -181,9 +179,7 @@ test "gc.collect: No leaks" {
 }
 
 fn leak(allocator: *mem.Allocator) !void {
-    var a = try allocator.create(Leaker{
-        .l = try allocator.create(Leaker(undefined)),
-    });
+    var a = try allocator.create(Leaker{ .l = try allocator.create(Leaker(undefined)) });
     a.l.l = a;
 }
 
@@ -192,9 +188,7 @@ test "gc.collect: Leaks" {
     defer gc.deinit();
     const allocator = gc.allocator();
 
-    var a = try allocator.create(Leaker{
-        .l = try allocator.create(Leaker(undefined)),
-    });
+    var a = try allocator.create(Leaker{ .l = try allocator.create(Leaker(undefined)) });
     a.l.l = a;
     try leak(allocator);
     gc.collect();
