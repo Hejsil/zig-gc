@@ -78,19 +78,22 @@ pub const GcAllocator = struct {
     }
 
     fn mark(gc: *GcAllocator, frame: []const u8) void {
-        for (frame) |*byte| {
-            // TODO: This is a really ugly cast. Will pointer ever be stored unaligned?
-            //       I guess they could be in packed structs, but is that even allowed?
-            //       If ptrs are always aligned, we can skip every @alignOf(*u8) bytes.
-            const Ptr = *align(@alignOf(u8)) const [*]u8;
-            const frame_ptr = @ptrCast(Ptr, byte);
-            const ptr = gc.findPtr(frame_ptr.*) orelse continue;
-            if (ptr.flags.checked)
-                continue;
+        const ptr_size = @sizeOf(*u8);
+        for ([]void{{}} ** ptr_size) |_, i| {
+            if (frame.len <= i)
+                break;
 
-            ptr.flags.marked = true;
-            ptr.flags.checked = true;
-            gc.mark(ptr.memory);
+            const frame2 = frame[i..];
+            const len = (frame2.len / ptr_size) * ptr_size;
+            for (@bytesToSlice([*]u8, frame2[0..len])) |frame_ptr| {
+                const ptr = gc.findPtr(frame_ptr) orelse continue;
+                if (ptr.flags.checked)
+                    continue;
+
+                ptr.flags.marked = true;
+                ptr.flags.checked = true;
+                gc.mark(ptr.memory);
+            }
         }
     }
 
