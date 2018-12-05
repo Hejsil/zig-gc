@@ -1,10 +1,13 @@
-const std = @import("std");
+const bench = @import("bench");
 const builtin = @import("builtin");
-const mem = std.mem;
+const std = @import("std");
+
 const debug = std.debug;
+const heap = std.heap;
+const mem = std.mem;
 
 pub const GcAllocator = struct {
-    const PointerList = std.SegmentedList(Pointer, 0);
+    const PointerList = std.ArrayList(Pointer);
 
     base: mem.Allocator,
     start: [*]const u8,
@@ -40,8 +43,7 @@ pub const GcAllocator = struct {
     pub fn deinit(gc: *GcAllocator) void {
         const child_alloc = gc.childAllocator();
 
-        var iter = gc.ptrs.iterator(0);
-        while (iter.next()) |ptr| {
+        for (gc.ptrs.toSlice()) |ptr| {
             child_alloc.free(ptr.memory);
         }
 
@@ -94,9 +96,10 @@ pub const GcAllocator = struct {
 
     fn sweep(gc: *GcAllocator) void {
         const child_alloc = gc.childAllocator();
+        const ptrs = gc.ptrs.toSlice();
         var i: usize = 0;
         while (i < gc.ptrs.len) {
-            const ptr = gc.ptrs.at(i);
+            const ptr = &ptrs[i];
             if (ptr.flags.marked) {
                 ptr.flags = Flags.zero;
                 i += 1;
@@ -110,8 +113,7 @@ pub const GcAllocator = struct {
     fn findPtr(gc: *GcAllocator, to_find_ptr: var) ?*Pointer {
         comptime debug.assert(@typeInfo(@typeOf(to_find_ptr)) == builtin.TypeId.Pointer);
 
-        var iter = gc.ptrs.iterator(0);
-        while (iter.next()) |ptr| {
+        for (gc.ptrs.toSlice()) |*ptr| {
             const ptr_start = @ptrToInt(ptr.memory.ptr);
             const ptr_end = ptr_start + ptr.memory.len;
             if (ptr_start <= @ptrToInt(to_find_ptr) and @ptrToInt(to_find_ptr) < ptr_end)
@@ -127,7 +129,7 @@ pub const GcAllocator = struct {
 
         // Swap the just freed pointer with the last pointer in the list.
         ptr.* = undefined;
-        ptr.* = gc.ptrs.pop() orelse undefined;
+        ptr.* = gc.ptrs.popOrNull() orelse undefined;
     }
 
     fn childAllocator(gc: *GcAllocator) *mem.Allocator {
@@ -138,7 +140,7 @@ pub const GcAllocator = struct {
         const gc = @fieldParentPtr(GcAllocator, "base", base);
         const child_alloc = gc.childAllocator();
         const memory = try child_alloc.allocFn(child_alloc, n, alignment);
-        try gc.ptrs.push(Pointer{
+        try gc.ptrs.append(Pointer{
             .flags = Flags.zero,
             .memory = memory,
         });
@@ -168,9 +170,13 @@ const Leaker = struct {
     l: *Leaker,
 };
 
+var test_buf: [1024 * 1024]u8 = undefined;
+
 test "gc.collect: No leaks" {
-    var gc = GcAllocator.init(debug.global_allocator);
+    var fba = heap.FixedBufferAllocator.init(test_buf[0..]);
+    var gc = GcAllocator.init(&fba.allocator);
     defer gc.deinit();
+
     const allocator = gc.allocator();
 
     var a = try allocator.create(Leaker{ .l = try allocator.create(Leaker(undefined)) });
@@ -188,8 +194,10 @@ fn leak(allocator: *mem.Allocator) !void {
 }
 
 test "gc.collect: Leaks" {
-    var gc = GcAllocator.init(debug.global_allocator);
+    var fba = heap.FixedBufferAllocator.init(test_buf[0..]);
+    var gc = GcAllocator.init(&fba.allocator);
     defer gc.deinit();
+
     const allocator = gc.allocator();
 
     var a = try allocator.create(Leaker{ .l = try allocator.create(Leaker(undefined)) });
@@ -203,8 +211,10 @@ test "gc.collect: Leaks" {
 }
 
 test "gc.free" {
-    var gc = GcAllocator.init(debug.global_allocator);
+    var fba = heap.FixedBufferAllocator.init(test_buf[0..]);
+    var gc = GcAllocator.init(&fba.allocator);
     defer gc.deinit();
+
     const allocator = gc.allocator();
 
     var a = try allocator.create(Leaker(undefined));
@@ -213,4 +223,85 @@ test "gc.free" {
 
     debug.assert(gc.findPtr(a) != null);
     debug.assert(gc.ptrs.len == 1);
+}
+
+test "gc.benchmark" {
+    try bench.benchmark(struct {
+        const Arg = struct {
+            num: usize,
+            size: usize,
+
+            fn benchAllocator(a: Arg, allocator: *mem.Allocator, comptime free: bool) !void {
+                var i: usize = 0;
+                while (i < a.num) : (i += 1) {
+                    const bytes = try allocator.alloc(u8, a.size);
+                    defer if (free) allocator.free(bytes);
+                }
+            }
+        };
+
+        const args = []Arg{
+            Arg{ .num = 10 * 1, .size = 1024 * 1 },
+            Arg{ .num = 10 * 2, .size = 1024 * 1 },
+            Arg{ .num = 10 * 4, .size = 1024 * 1 },
+            Arg{ .num = 10 * 1, .size = 1024 * 2 },
+            Arg{ .num = 10 * 2, .size = 1024 * 2 },
+            Arg{ .num = 10 * 4, .size = 1024 * 2 },
+            Arg{ .num = 10 * 1, .size = 1024 * 4 },
+            Arg{ .num = 10 * 2, .size = 1024 * 4 },
+            Arg{ .num = 10 * 4, .size = 1024 * 4 },
+        };
+
+        const iterations = 10000;
+
+        fn FixedBufferAllocator(a: Arg) void {
+            var fba = heap.FixedBufferAllocator.init(test_buf[0..]);
+            a.benchAllocator(&fba.allocator, false) catch unreachable;
+        }
+
+        fn Arena_FixedBufferAllocator(a: Arg) void {
+            var fba = heap.FixedBufferAllocator.init(test_buf[0..]);
+            var arena = heap.ArenaAllocator.init(&fba.allocator);
+            defer arena.deinit();
+
+            a.benchAllocator(&arena.allocator, false) catch unreachable;
+        }
+
+        fn GcAllocator_FixedBufferAllocator(a: Arg) void {
+            var fba = heap.FixedBufferAllocator.init(test_buf[0..]);
+            var gc = GcAllocator.init(&fba.allocator);
+            defer gc.deinit();
+
+            a.benchAllocator(gc.allocator(), false) catch unreachable;
+            gc.collect();
+        }
+
+        fn DirectAllocator(a: Arg) void {
+            var da = heap.DirectAllocator.init();
+            defer da.deinit();
+
+            a.benchAllocator(&da.allocator, true) catch unreachable;
+        }
+
+        fn Arena_DirectAllocator(a: Arg) void {
+            var da = heap.DirectAllocator.init();
+            defer da.deinit();
+
+            var arena = heap.ArenaAllocator.init(&da.allocator);
+            defer arena.deinit();
+
+            a.benchAllocator(&arena.allocator, false) catch unreachable;
+        }
+
+        fn GcAllocator_DirectAllocator(a: Arg) void {
+            var da = heap.DirectAllocator.init();
+            defer da.deinit();
+
+            var gc = GcAllocator.init(&da.allocator);
+            defer gc.deinit();
+
+            a.benchAllocator(gc.allocator(), false) catch unreachable;
+            gc.collect();
+        }
+    });
 }
