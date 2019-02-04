@@ -182,7 +182,8 @@ test "gc.collect: No leaks" {
 
     const allocator = gc.allocator();
 
-    var a = try allocator.create(Leaker{ .l = try allocator.create(Leaker(undefined)) });
+    var a = try allocator.create(Leaker);
+    a.* = Leaker{ .l = try allocator.create(Leaker) };
     a.l.l = a;
     gc.collect();
 
@@ -192,7 +193,8 @@ test "gc.collect: No leaks" {
 }
 
 fn leak(allocator: *mem.Allocator) !void {
-    var a = try allocator.create(Leaker{ .l = try allocator.create(Leaker(undefined)) });
+    var a = try allocator.create(Leaker);
+    a.* = Leaker{ .l = try allocator.create(Leaker) };
     a.l.l = a;
 }
 
@@ -203,7 +205,8 @@ test "gc.collect: Leaks" {
 
     const allocator = gc.allocator();
 
-    var a = try allocator.create(Leaker{ .l = try allocator.create(Leaker(undefined)) });
+    var a = try allocator.create(Leaker);
+    a.* = Leaker{ .l = try allocator.create(Leaker) };
     a.l.l = a;
     try @noInlineCall(leak, allocator);
     gc.collect();
@@ -220,8 +223,8 @@ test "gc.free" {
 
     const allocator = gc.allocator();
 
-    var a = try allocator.create(Leaker(undefined));
-    var b = try allocator.create(Leaker(undefined));
+    var a = try allocator.create(Leaker);
+    var b = try allocator.create(Leaker);
     allocator.destroy(b);
 
     debug.assert(gc.findPtr(a) != null);
