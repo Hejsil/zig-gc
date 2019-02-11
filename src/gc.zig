@@ -2,9 +2,10 @@ const bench = @import("bench");
 const builtin = @import("builtin");
 const std = @import("std");
 
-const debug = std.debug;
 const heap = std.heap;
 const mem = std.mem;
+const debug = std.debug;
+const testing = std.testing;
 
 pub const GcAllocator = struct {
     const PointerList = std.ArrayList(Pointer);
@@ -187,9 +188,9 @@ test "gc.collect: No leaks" {
     a.l.l = a;
     gc.collect();
 
-    debug.assert(gc.findPtr(a) != null);
-    debug.assert(gc.findPtr(a.l) != null);
-    debug.assert(gc.ptrs.len == 2);
+    testing.expect(gc.findPtr(a) != null);
+    testing.expect(gc.findPtr(a.l) != null);
+    testing.expectEqual(usize(2), gc.ptrs.len);
 }
 
 fn leak(allocator: *mem.Allocator) !void {
@@ -211,9 +212,9 @@ test "gc.collect: Leaks" {
     try @noInlineCall(leak, allocator);
     gc.collect();
 
-    debug.assert(gc.findPtr(a) != null);
-    debug.assert(gc.findPtr(a.l) != null);
-    debug.assert(gc.ptrs.len == 2);
+    testing.expect(gc.findPtr(a) != null);
+    testing.expect(gc.findPtr(a.l) != null);
+    testing.expectEqual(usize(2), gc.ptrs.len);
 }
 
 test "gc.free" {
@@ -227,8 +228,8 @@ test "gc.free" {
     var b = try allocator.create(Leaker);
     allocator.destroy(b);
 
-    debug.assert(gc.findPtr(a) != null);
-    debug.assert(gc.ptrs.len == 1);
+    testing.expect(gc.findPtr(a) != null);
+    testing.expectEqual(usize(1), gc.ptrs.len);
 }
 
 test "gc.benchmark" {
