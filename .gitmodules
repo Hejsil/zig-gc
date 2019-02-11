@@ -1,3 +1,4 @@
 [submodule "lib/zig-bench"]
 	path = lib/zig-bench
 	url = https://github.com/Hejsil/zig-bench.git
+	branch = master
