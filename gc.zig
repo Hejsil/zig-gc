@@ -36,7 +36,7 @@ pub const GcAllocator = struct {
                 .reallocFn = realloc,
                 .freeFn = free,
             },
-            .start = @ptrCast([*]const u8, @frameAddress()),
+            .start = @intToPtr([*]const u8, @frameAddress()),
             .ptrs = PointerList.init(child_alloc),
         };
     }
@@ -67,7 +67,7 @@ pub const GcAllocator = struct {
 
     fn collectNoInline(gc: *GcAllocator) void {
         const frame = blk: {
-            const end = @ptrCast([*]const u8, @frameAddress());
+            const end = @intToPtr([*]const u8, @frameAddress());
             const i_start = @ptrToInt(gc.start);
             const i_end = @ptrToInt(end);
             if (i_start < i_end)
@@ -247,7 +247,7 @@ test "gc.benchmark" {
             }
         };
 
-        const args = []Arg{
+        pub const args = []Arg{
             Arg{ .num = 10 * 1, .size = 1024 * 1 },
             Arg{ .num = 10 * 2, .size = 1024 * 1 },
             Arg{ .num = 10 * 4, .size = 1024 * 1 },
@@ -259,14 +259,14 @@ test "gc.benchmark" {
             Arg{ .num = 10 * 4, .size = 1024 * 4 },
         };
 
-        const iterations = 10000;
+        pub const iterations = 10000;
 
-        fn FixedBufferAllocator(a: Arg) void {
+        pub fn FixedBufferAllocator(a: Arg) void {
             var fba = heap.FixedBufferAllocator.init(test_buf[0..]);
             a.benchAllocator(&fba.allocator, false) catch unreachable;
         }
 
-        fn Arena_FixedBufferAllocator(a: Arg) void {
+        pub fn Arena_FixedBufferAllocator(a: Arg) void {
             var fba = heap.FixedBufferAllocator.init(test_buf[0..]);
             var arena = heap.ArenaAllocator.init(&fba.allocator);
             defer arena.deinit();
@@ -274,7 +274,7 @@ test "gc.benchmark" {
             a.benchAllocator(&arena.allocator, false) catch unreachable;
         }
 
-        fn GcAllocator_FixedBufferAllocator(a: Arg) void {
+        pub fn GcAllocator_FixedBufferAllocator(a: Arg) void {
             var fba = heap.FixedBufferAllocator.init(test_buf[0..]);
             var gc = GcAllocator.init(&fba.allocator);
             defer gc.deinit();
@@ -283,14 +283,14 @@ test "gc.benchmark" {
             gc.collect();
         }
 
-        fn DirectAllocator(a: Arg) void {
+        pub fn DirectAllocator(a: Arg) void {
             var da = heap.DirectAllocator.init();
             defer da.deinit();
 
             a.benchAllocator(&da.allocator, true) catch unreachable;
         }
 
-        fn Arena_DirectAllocator(a: Arg) void {
+        pub fn Arena_DirectAllocator(a: Arg) void {
             var da = heap.DirectAllocator.init();
             defer da.deinit();
 
@@ -300,7 +300,7 @@ test "gc.benchmark" {
             a.benchAllocator(&arena.allocator, false) catch unreachable;
         }
 
-        fn GcAllocator_DirectAllocator(a: Arg) void {
+        pub fn GcAllocator_DirectAllocator(a: Arg) void {
             var da = heap.DirectAllocator.init();
             defer da.deinit();
 

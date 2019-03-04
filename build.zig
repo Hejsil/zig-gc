@@ -10,8 +10,8 @@ pub fn build(b: *Builder) void {
     inline for ([]Mode{ Mode.Debug, Mode.ReleaseFast, Mode.ReleaseSafe, Mode.ReleaseSmall }) |test_mode| {
         const mode_str = comptime modeToString(test_mode);
 
-        const t = b.addTest("src/gc.zig");
-        t.addPackagePath("bench", "lib/zig-bench/src/index.zig");
+        const t = b.addTest("gc.zig");
+        t.addPackagePath("bench", "lib/zig-bench/bench.zig");
         t.setBuildMode(test_mode);
         t.setNamePrefix(mode_str ++ " ");
 
