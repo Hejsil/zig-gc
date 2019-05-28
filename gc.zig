@@ -32,9 +32,8 @@ pub const GcAllocator = struct {
     pub inline fn init(child_alloc: *mem.Allocator) GcAllocator {
         return GcAllocator{
             .base = mem.Allocator{
-                .allocFn = alloc,
                 .reallocFn = realloc,
-                .freeFn = free,
+                .shrinkFn = shrink,
             },
             .start = @intToPtr([*]const u8, @frameAddress()),
             .ptrs = PointerList.init(child_alloc),
@@ -143,7 +142,7 @@ pub const GcAllocator = struct {
     fn alloc(base: *mem.Allocator, n: usize, alignment: u29) ![]u8 {
         const gc = @fieldParentPtr(GcAllocator, "base", base);
         const child_alloc = gc.childAllocator();
-        const memory = try child_alloc.allocFn(child_alloc, n, alignment);
+        const memory = try child_alloc.reallocFn(child_alloc, ([*]u8)(undefined)[0..0], 0, n, alignment);
         try gc.ptrs.append(Pointer{
             .flags = Flags.zero,
             .memory = memory,
@@ -152,8 +151,18 @@ pub const GcAllocator = struct {
         return memory;
     }
 
-    fn realloc(base: *mem.Allocator, old_mem: []u8, new_size: usize, alignment: u29) ![]u8 {
-        if (new_size <= old_mem.len) {
+    fn free(base: *mem.Allocator, bytes: []u8) void {
+        const gc = @fieldParentPtr(GcAllocator, "base", base);
+        const child_alloc = gc.childAllocator();
+        const ptr = gc.findPtr(bytes.ptr) orelse @panic("Freeing memory not allocated by garbage collector!");
+        gc.freePtr(ptr);
+    }
+
+    fn realloc(base: *mem.Allocator, old_mem: []u8, old_alignment: u29, new_size: usize, alignment: u29) mem.Allocator.Error![]u8 {
+        if (new_size == 0) {
+            free(base, old_mem);
+            return ([*]u8)(undefined)[0..0];
+        } else if (new_size <= old_mem.len) {
             return old_mem[0..new_size];
         } else {
             const result = try alloc(base, new_size, alignment);
@@ -162,11 +171,15 @@ pub const GcAllocator = struct {
         }
     }
 
-    fn free(base: *mem.Allocator, bytes: []u8) void {
-        const gc = @fieldParentPtr(GcAllocator, "base", base);
-        const child_alloc = gc.childAllocator();
-        const ptr = gc.findPtr(bytes.ptr) orelse @panic("Freeing memory not allocated by garbage collector!");
-        gc.freePtr(ptr);
+    fn shrink(base: *mem.Allocator, old_mem: []u8, old_alignment: u29, new_size: usize, alignment: u29) []u8 {
+        if (new_size == 0) {
+            free(base, old_mem);
+            return ([*]u8)(undefined)[0..0];
+        } else if (new_size <= old_mem.len) {
+            return old_mem[0..new_size];
+        } else {
+            unreachable;
+        }
     }
 };
 
