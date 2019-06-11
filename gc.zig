@@ -79,7 +79,7 @@ pub const GcAllocator = struct {
 
     fn mark(gc: *GcAllocator, frame: []const u8) void {
         const ptr_size = @sizeOf(*u8);
-        for ([]void{{}} ** ptr_size) |_, i| {
+        for ([_]void{{}} ** ptr_size) |_, i| {
             if (frame.len <= i)
                 break;
 
@@ -260,7 +260,7 @@ test "gc.benchmark" {
             }
         };
 
-        pub const args = []Arg{
+        pub const args = [_]Arg{
             Arg{ .num = 10 * 1, .size = 1024 * 1 },
             Arg{ .num = 10 * 2, .size = 1024 * 1 },
             Arg{ .num = 10 * 4, .size = 1024 * 1 },
