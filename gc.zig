@@ -43,7 +43,7 @@ pub const GcAllocator = struct {
     pub fn deinit(gc: *GcAllocator) void {
         const child_alloc = gc.childAllocator();
 
-        for (gc.ptrs.toSlice()) |ptr| {
+        for (gc.ptrs.items) |ptr| {
             child_alloc.free(ptr.memory);
         }
 
@@ -99,9 +99,9 @@ pub const GcAllocator = struct {
 
     fn sweep(gc: *GcAllocator) void {
         const child_alloc = gc.childAllocator();
-        const ptrs = gc.ptrs.toSlice();
+        const ptrs = gc.ptrs.items;
         var i: usize = 0;
-        while (i < gc.ptrs.len) {
+        while (i < gc.ptrs.items.len) {
             const ptr = &ptrs[i];
             if (ptr.flags.marked) {
                 ptr.flags = Flags.zero;
@@ -116,7 +116,7 @@ pub const GcAllocator = struct {
     fn findPtr(gc: *GcAllocator, to_find_ptr: var) ?*Pointer {
         comptime debug.assert(@typeInfo(@TypeOf(to_find_ptr)) == builtin.TypeId.Pointer);
 
-        for (gc.ptrs.toSlice()) |*ptr| {
+        for (gc.ptrs.items) |*ptr| {
             const ptr_start = @ptrToInt(ptr.memory.ptr);
             const ptr_end = ptr_start + ptr.memory.len;
             if (ptr_start <= @ptrToInt(to_find_ptr) and @ptrToInt(to_find_ptr) < ptr_end)
@@ -203,7 +203,7 @@ test "gc.collect: No leaks" {
 
     testing.expect(gc.findPtr(a) != null);
     testing.expect(gc.findPtr(a.l) != null);
-    testing.expectEqual(@as(usize, 2), gc.ptrs.len);
+    testing.expectEqual(@as(usize, 2), gc.ptrs.items.len);
 }
 
 fn leak(allocator: *mem.Allocator) !void {
@@ -227,7 +227,7 @@ test "gc.collect: Leaks" {
 
     testing.expect(gc.findPtr(a) != null);
     testing.expect(gc.findPtr(a.l) != null);
-    testing.expectEqual(@as(usize, 2), gc.ptrs.len);
+    testing.expectEqual(@as(usize, 2), gc.ptrs.items.len);
 }
 
 test "gc.free" {
@@ -242,7 +242,7 @@ test "gc.free" {
     allocator.destroy(b);
 
     testing.expect(gc.findPtr(a) != null);
-    testing.expectEqual(@as(usize, 1), gc.ptrs.len);
+    testing.expectEqual(@as(usize, 1), gc.ptrs.items.len);
 }
 
 // test "gc.benchmark" {
