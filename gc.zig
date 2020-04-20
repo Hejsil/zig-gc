@@ -245,83 +245,80 @@ test "gc.free" {
     testing.expectEqual(@as(usize, 1), gc.ptrs.items.len);
 }
 
-// test "gc.benchmark" {
-//     try bench.benchmark(struct {
-//         const Arg = struct {
-//             num: usize,
-//             size: usize,
-// 
-//             fn benchAllocator(a: Arg, allocator: *mem.Allocator, comptime free: bool) !void {
-//                 var i: usize = 0;
-//                 while (i < a.num) : (i += 1) {
-//                     const bytes = try allocator.alloc(u8, a.size);
-//                     defer if (free) allocator.free(bytes);
-//                 }
-//             }
-//         };
-// 
-//         pub const args = [_]Arg{
-//             Arg{ .num = 10 * 1, .size = 1024 * 1 },
-//             Arg{ .num = 10 * 2, .size = 1024 * 1 },
-//             Arg{ .num = 10 * 4, .size = 1024 * 1 },
-//             Arg{ .num = 10 * 1, .size = 1024 * 2 },
-//             Arg{ .num = 10 * 2, .size = 1024 * 2 },
-//             Arg{ .num = 10 * 4, .size = 1024 * 2 },
-//             Arg{ .num = 10 * 1, .size = 1024 * 4 },
-//             Arg{ .num = 10 * 2, .size = 1024 * 4 },
-//             Arg{ .num = 10 * 4, .size = 1024 * 4 },
-//         };
-// 
-//         pub const iterations = 10000;
-// 
-//         pub fn FixedBufferAllocator(a: Arg) void {
-//             var fba = heap.FixedBufferAllocator.init(test_buf[0..]);
-//             a.benchAllocator(&fba.allocator, false) catch unreachable;
-//         }
-// 
-//         pub fn Arena_FixedBufferAllocator(a: Arg) void {
-//             var fba = heap.FixedBufferAllocator.init(test_buf[0..]);
-//             var arena = heap.ArenaAllocator.init(&fba.allocator);
-//             defer arena.deinit();
-// 
-//             a.benchAllocator(&arena.allocator, false) catch unreachable;
-//         }
-// 
-//         pub fn GcAllocator_FixedBufferAllocator(a: Arg) void {
-//             var fba = heap.FixedBufferAllocator.init(test_buf[0..]);
-//             var gc = GcAllocator.init(&fba.allocator);
-//             defer gc.deinit();
-// 
-//             a.benchAllocator(gc.allocator(), false) catch unreachable;
-//             gc.collect();
-//         }
-// 
-//         pub fn DirectAllocator(a: Arg) void {
-//             var da = heap.DirectAllocator.init();
-//             defer da.deinit();
-// 
-//             a.benchAllocator(&da.allocator, true) catch unreachable;
-//         }
-// 
-//         pub fn Arena_DirectAllocator(a: Arg) void {
-//             var da = heap.DirectAllocator.init();
-//             defer da.deinit();
-// 
-//             var arena = heap.ArenaAllocator.init(&da.allocator);
-//             defer arena.deinit();
-// 
-//             a.benchAllocator(&arena.allocator, false) catch unreachable;
-//         }
-// 
-//         pub fn GcAllocator_DirectAllocator(a: Arg) void {
-//             var da = heap.DirectAllocator.init();
-//             defer da.deinit();
-// 
-//             var gc = GcAllocator.init(&da.allocator);
-//             defer gc.deinit();
-// 
-//             a.benchAllocator(gc.allocator(), false) catch unreachable;
-//             gc.collect();
-//         }
-//     });
-// }
+test "gc.benchmark" {
+    try bench.benchmark(struct {
+        const Arg = struct {
+            num: usize,
+            size: usize,
+
+            fn benchAllocator(a: Arg, allocator: *mem.Allocator, comptime free: bool) !void {
+                var i: usize = 0;
+                while (i < a.num) : (i += 1) {
+                    const bytes = try allocator.alloc(u8, a.size);
+                    defer if (free) allocator.free(bytes);
+                }
+            }
+        };
+
+        pub const args = [_]Arg{
+            Arg{ .num = 10 * 1, .size = 1024 * 1 },
+            Arg{ .num = 10 * 2, .size = 1024 * 1 },
+            Arg{ .num = 10 * 4, .size = 1024 * 1 },
+            Arg{ .num = 10 * 1, .size = 1024 * 2 },
+            Arg{ .num = 10 * 2, .size = 1024 * 2 },
+            Arg{ .num = 10 * 4, .size = 1024 * 2 },
+            Arg{ .num = 10 * 1, .size = 1024 * 4 },
+            Arg{ .num = 10 * 2, .size = 1024 * 4 },
+            Arg{ .num = 10 * 4, .size = 1024 * 4 },
+        };
+
+        pub const iterations = 10000;
+
+        pub fn FixedBufferAllocator(a: Arg) void {
+            var fba = heap.FixedBufferAllocator.init(test_buf[0..]);
+            a.benchAllocator(&fba.allocator, false) catch unreachable;
+        }
+
+        pub fn Arena_FixedBufferAllocator(a: Arg) void {
+            var fba = heap.FixedBufferAllocator.init(test_buf[0..]);
+            var arena = heap.ArenaAllocator.init(&fba.allocator);
+            defer arena.deinit();
+
+            a.benchAllocator(&arena.allocator, false) catch unreachable;
+        }
+
+        pub fn GcAllocator_FixedBufferAllocator(a: Arg) void {
+            var fba = heap.FixedBufferAllocator.init(test_buf[0..]);
+            var gc = GcAllocator.init(&fba.allocator);
+            defer gc.deinit();
+
+            a.benchAllocator(gc.allocator(), false) catch unreachable;
+            gc.collect();
+        }
+
+        pub fn PageAllocator(a: Arg) void {
+            const pa = heap.page_allocator;
+
+            a.benchAllocator(pa, true) catch unreachable;
+        }
+
+        pub fn Arena_PageAllocator(a: Arg) void {
+            const pa = heap.page_allocator;
+
+            var arena = heap.ArenaAllocator.init(pa);
+            defer arena.deinit();
+
+            a.benchAllocator(&arena.allocator, false) catch unreachable;
+        }
+
+        pub fn GcAllocator_PageAllocator(a: Arg) void {
+            const pa = heap.page_allocator;
+
+            var gc = GcAllocator.init(pa);
+            defer gc.deinit();
+
+            a.benchAllocator(gc.allocator(), false) catch unreachable;
+            gc.collect();
+        }
+    });
+}
