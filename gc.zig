@@ -52,7 +52,7 @@ pub const GcAllocator = struct {
     }
 
     pub fn collect(gc: *GcAllocator) void {
-        @call(.{ .modifier = .never_inline }, collectNoInline, .{ gc });
+        @call(.{ .modifier = .never_inline }, collectNoInline, .{gc});
     }
 
     pub fn collectFrame(gc: *GcAllocator, frame: []const u8) void {
@@ -222,7 +222,7 @@ test "gc.collect: Leaks" {
     var a = try allocator.create(Leaker);
     a.* = Leaker{ .l = try allocator.create(Leaker) };
     a.l.l = a;
-    try @call(.{ .modifier = .never_inline }, leak, .{ allocator });
+    try @call(.{ .modifier = .never_inline }, leak, .{allocator});
     gc.collect();
 
     testing.expect(gc.findPtr(a) != null);
