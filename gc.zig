@@ -43,7 +43,7 @@ pub const GcAllocator = struct {
     pub fn deinit(gc: *GcAllocator) void {
         const child_alloc = gc.childAllocator();
 
-        for (gc.ptrs.toSlice()) |ptr| {
+        for (gc.ptrs.items) |ptr| {
             child_alloc.free(ptr.memory);
         }
 
@@ -52,7 +52,7 @@ pub const GcAllocator = struct {
     }
 
     pub fn collect(gc: *GcAllocator) void {
-        @noInlineCall(collectNoInline, gc);
+        @call(.{ .modifier = .never_inline }, collectNoInline, .{ gc });
     }
 
     pub fn collectFrame(gc: *GcAllocator, frame: []const u8) void {
@@ -85,7 +85,7 @@ pub const GcAllocator = struct {
 
             const frame2 = frame[i..];
             const len = (frame2.len / ptr_size) * ptr_size;
-            for (@bytesToSlice([*]u8, frame2[0..len])) |frame_ptr| {
+            for (std.mem.bytesAsSlice([*]u8, frame2[0..len])) |frame_ptr| {
                 const ptr = gc.findPtr(frame_ptr) orelse continue;
                 if (ptr.flags.checked)
                     continue;
@@ -99,9 +99,9 @@ pub const GcAllocator = struct {
 
     fn sweep(gc: *GcAllocator) void {
         const child_alloc = gc.childAllocator();
-        const ptrs = gc.ptrs.toSlice();
+        const ptrs = gc.ptrs.items;
         var i: usize = 0;
-        while (i < gc.ptrs.len) {
+        while (i < gc.ptrs.items.len) {
             const ptr = &ptrs[i];
             if (ptr.flags.marked) {
                 ptr.flags = Flags.zero;
@@ -114,9 +114,9 @@ pub const GcAllocator = struct {
     }
 
     fn findPtr(gc: *GcAllocator, to_find_ptr: var) ?*Pointer {
-        comptime debug.assert(@typeInfo(@typeOf(to_find_ptr)) == builtin.TypeId.Pointer);
+        comptime debug.assert(@typeInfo(@TypeOf(to_find_ptr)) == builtin.TypeId.Pointer);
 
-        for (gc.ptrs.toSlice()) |*ptr| {
+        for (gc.ptrs.items) |*ptr| {
             const ptr_start = @ptrToInt(ptr.memory.ptr);
             const ptr_end = ptr_start + ptr.memory.len;
             if (ptr_start <= @ptrToInt(to_find_ptr) and @ptrToInt(to_find_ptr) < ptr_end)
@@ -142,7 +142,7 @@ pub const GcAllocator = struct {
     fn alloc(base: *mem.Allocator, n: usize, alignment: u29) ![]u8 {
         const gc = @fieldParentPtr(GcAllocator, "base", base);
         const child_alloc = gc.childAllocator();
-        const memory = try child_alloc.reallocFn(child_alloc, ([*]u8)(undefined)[0..0], 0, n, alignment);
+        const memory = try child_alloc.reallocFn(child_alloc, &[_]u8{}, 0, n, alignment);
         try gc.ptrs.append(Pointer{
             .flags = Flags.zero,
             .memory = memory,
@@ -161,7 +161,7 @@ pub const GcAllocator = struct {
     fn realloc(base: *mem.Allocator, old_mem: []u8, old_alignment: u29, new_size: usize, alignment: u29) mem.Allocator.Error![]u8 {
         if (new_size == 0) {
             free(base, old_mem);
-            return ([*]u8)(undefined)[0..0];
+            return &[_]u8{};
         } else if (new_size <= old_mem.len) {
             return old_mem[0..new_size];
         } else {
@@ -174,7 +174,7 @@ pub const GcAllocator = struct {
     fn shrink(base: *mem.Allocator, old_mem: []u8, old_alignment: u29, new_size: usize, alignment: u29) []u8 {
         if (new_size == 0) {
             free(base, old_mem);
-            return ([*]u8)(undefined)[0..0];
+            return &[_]u8{};
         } else if (new_size <= old_mem.len) {
             return old_mem[0..new_size];
         } else {
@@ -203,7 +203,7 @@ test "gc.collect: No leaks" {
 
     testing.expect(gc.findPtr(a) != null);
     testing.expect(gc.findPtr(a.l) != null);
-    testing.expectEqual(usize(2), gc.ptrs.len);
+    testing.expectEqual(@as(usize, 2), gc.ptrs.items.len);
 }
 
 fn leak(allocator: *mem.Allocator) !void {
@@ -222,12 +222,12 @@ test "gc.collect: Leaks" {
     var a = try allocator.create(Leaker);
     a.* = Leaker{ .l = try allocator.create(Leaker) };
     a.l.l = a;
-    try @noInlineCall(leak, allocator);
+    try @call(.{ .modifier = .never_inline }, leak, .{ allocator });
     gc.collect();
 
     testing.expect(gc.findPtr(a) != null);
     testing.expect(gc.findPtr(a.l) != null);
-    testing.expectEqual(usize(2), gc.ptrs.len);
+    testing.expectEqual(@as(usize, 2), gc.ptrs.items.len);
 }
 
 test "gc.free" {
@@ -242,7 +242,7 @@ test "gc.free" {
     allocator.destroy(b);
 
     testing.expect(gc.findPtr(a) != null);
-    testing.expectEqual(usize(1), gc.ptrs.len);
+    testing.expectEqual(@as(usize, 1), gc.ptrs.items.len);
 }
 
 test "gc.benchmark" {
@@ -296,28 +296,25 @@ test "gc.benchmark" {
             gc.collect();
         }
 
-        pub fn DirectAllocator(a: Arg) void {
-            var da = heap.DirectAllocator.init();
-            defer da.deinit();
+        pub fn PageAllocator(a: Arg) void {
+            const pa = heap.page_allocator;
 
-            a.benchAllocator(&da.allocator, true) catch unreachable;
+            a.benchAllocator(pa, true) catch unreachable;
         }
 
-        pub fn Arena_DirectAllocator(a: Arg) void {
-            var da = heap.DirectAllocator.init();
-            defer da.deinit();
+        pub fn Arena_PageAllocator(a: Arg) void {
+            const pa = heap.page_allocator;
 
-            var arena = heap.ArenaAllocator.init(&da.allocator);
+            var arena = heap.ArenaAllocator.init(pa);
             defer arena.deinit();
 
             a.benchAllocator(&arena.allocator, false) catch unreachable;
         }
 
-        pub fn GcAllocator_DirectAllocator(a: Arg) void {
-            var da = heap.DirectAllocator.init();
-            defer da.deinit();
+        pub fn GcAllocator_PageAllocator(a: Arg) void {
+            const pa = heap.page_allocator;
 
-            var gc = GcAllocator.init(&da.allocator);
+            var gc = GcAllocator.init(pa);
             defer gc.deinit();
 
             a.benchAllocator(gc.allocator(), false) catch unreachable;
