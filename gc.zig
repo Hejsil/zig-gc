@@ -1,10 +1,10 @@
 const bench = @import("bench");
-const builtin = @import("builtin");
 const std = @import("std");
 
+const builtin = std.builtin;
+const debug = std.debug;
 const heap = std.heap;
 const mem = std.mem;
-const debug = std.debug;
 const testing = std.testing;
 
 pub const GcAllocator = struct {
@@ -32,8 +32,8 @@ pub const GcAllocator = struct {
     pub inline fn init(child_alloc: *mem.Allocator) GcAllocator {
         return GcAllocator{
             .base = mem.Allocator{
-                .reallocFn = realloc,
-                .shrinkFn = shrink,
+                .allocFn = allocFn,
+                .resizeFn = resizeFn,
             },
             .start = @intToPtr([*]const u8, @frameAddress()),
             .ptrs = PointerList.init(child_alloc),
@@ -113,7 +113,7 @@ pub const GcAllocator = struct {
         }
     }
 
-    fn findPtr(gc: *GcAllocator, to_find_ptr: var) ?*Pointer {
+    fn findPtr(gc: *GcAllocator, to_find_ptr: anytype) ?*Pointer {
         comptime debug.assert(@typeInfo(@TypeOf(to_find_ptr)) == builtin.TypeId.Pointer);
 
         for (gc.ptrs.items) |*ptr| {
@@ -139,10 +139,23 @@ pub const GcAllocator = struct {
         return gc.ptrs.allocator;
     }
 
-    fn alloc(base: *mem.Allocator, n: usize, alignment: u29) ![]u8 {
+    fn free(base: *mem.Allocator, bytes: []u8) void {
         const gc = @fieldParentPtr(GcAllocator, "base", base);
         const child_alloc = gc.childAllocator();
-        const memory = try child_alloc.reallocFn(child_alloc, &[_]u8{}, 0, n, alignment);
+        const ptr = gc.findPtr(bytes.ptr) orelse @panic("Freeing memory not allocated by garbage collector!");
+        gc.freePtr(ptr);
+    }
+
+    fn allocFn(
+        base: *mem.Allocator,
+        len: usize,
+        ptr_align: u29,
+        len_align: u29,
+        ret_addr: usize,
+    ) ![]u8 {
+        const gc = @fieldParentPtr(GcAllocator, "base", base);
+        const child_alloc = gc.childAllocator();
+        const memory = try child_alloc.allocFn(child_alloc, len, ptr_align, len_align, ret_addr);
         try gc.ptrs.append(Pointer{
             .flags = Flags.zero,
             .memory = memory,
@@ -151,35 +164,21 @@ pub const GcAllocator = struct {
         return memory;
     }
 
-    fn free(base: *mem.Allocator, bytes: []u8) void {
-        const gc = @fieldParentPtr(GcAllocator, "base", base);
-        const child_alloc = gc.childAllocator();
-        const ptr = gc.findPtr(bytes.ptr) orelse @panic("Freeing memory not allocated by garbage collector!");
-        gc.freePtr(ptr);
-    }
-
-    fn realloc(base: *mem.Allocator, old_mem: []u8, old_alignment: u29, new_size: usize, alignment: u29) mem.Allocator.Error![]u8 {
-        if (new_size == 0) {
-            free(base, old_mem);
-            return &[_]u8{};
-        } else if (new_size <= old_mem.len) {
-            return old_mem[0..new_size];
-        } else {
-            const result = try alloc(base, new_size, alignment);
-            mem.copy(u8, result, old_mem);
-            return result;
+    fn resizeFn(
+        base: *mem.Allocator,
+        buf: []u8,
+        buf_align: u29,
+        new_len: usize,
+        len_align: u29,
+        ret_addr: usize,
+    ) !usize {
+        if (new_len == 0) {
+            free(base, buf);
+            return 0;
         }
-    }
-
-    fn shrink(base: *mem.Allocator, old_mem: []u8, old_alignment: u29, new_size: usize, alignment: u29) []u8 {
-        if (new_size == 0) {
-            free(base, old_mem);
-            return &[_]u8{};
-        } else if (new_size <= old_mem.len) {
-            return old_mem[0..new_size];
-        } else {
-            unreachable;
-        }
+        if (new_len > buf.len)
+            return error.OutOfMemory;
+        return new_len;
     }
 };
 
@@ -201,9 +200,9 @@ test "gc.collect: No leaks" {
     a.l.l = a;
     gc.collect();
 
-    testing.expect(gc.findPtr(a) != null);
-    testing.expect(gc.findPtr(a.l) != null);
-    testing.expectEqual(@as(usize, 2), gc.ptrs.items.len);
+    try testing.expect(gc.findPtr(a) != null);
+    try testing.expect(gc.findPtr(a.l) != null);
+    try testing.expectEqual(@as(usize, 2), gc.ptrs.items.len);
 }
 
 fn leak(allocator: *mem.Allocator) !void {
@@ -225,9 +224,9 @@ test "gc.collect: Leaks" {
     try @call(.{ .modifier = .never_inline }, leak, .{allocator});
     gc.collect();
 
-    testing.expect(gc.findPtr(a) != null);
-    testing.expect(gc.findPtr(a.l) != null);
-    testing.expectEqual(@as(usize, 2), gc.ptrs.items.len);
+    try testing.expect(gc.findPtr(a) != null);
+    try testing.expect(gc.findPtr(a.l) != null);
+    try testing.expectEqual(@as(usize, 2), gc.ptrs.items.len);
 }
 
 test "gc.free" {
@@ -241,8 +240,8 @@ test "gc.free" {
     var b = try allocator.create(Leaker);
     allocator.destroy(b);
 
-    testing.expect(gc.findPtr(a) != null);
-    testing.expectEqual(@as(usize, 1), gc.ptrs.items.len);
+    try testing.expect(gc.findPtr(a) != null);
+    try testing.expectEqual(@as(usize, 1), gc.ptrs.items.len);
 }
 
 test "gc.benchmark" {

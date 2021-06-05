@@ -1,13 +1,12 @@
-const builtin = @import("builtin");
 const std = @import("std");
 
 const Builder = std.build.Builder;
-const Mode = builtin.Mode;
 
 pub fn build(b: *Builder) void {
     const test_all_step = b.step("test", "Run all tests in all modes.");
-    inline for ([_]Mode{ Mode.Debug, Mode.ReleaseFast, Mode.ReleaseSafe, Mode.ReleaseSmall }) |test_mode| {
-        const mode_str = comptime modeToString(test_mode);
+    inline for (@typeInfo(std.builtin.Mode).Enum.fields) |field| {
+        const test_mode = @field(std.builtin.Mode, field.name);
+        const mode_str = @tagName(test_mode);
 
         const t = b.addTest("gc.zig");
         t.addPackagePath("bench", "lib/zig-bench/bench.zig");
